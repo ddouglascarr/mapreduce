@@ -492,6 +492,9 @@ function updateViewInQueue(view) {
     }
 
     function processPurge() {
+      if (view.db.adapter === 'http') {
+        return Promise.resolve();
+      }
       var sourcePurgeSeq = 0;
       var currentPurgeSeq = 0;
       var localPurgeDoc;

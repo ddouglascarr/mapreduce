@@ -478,6 +478,7 @@ function updateViewInQueue(view) {
           }
           currentSeq = change.seq;
         }
+        console.log('docIdsToChangesAndEmits: %o', docIdsToChangesAndEmits);
         queue.add(processChange(docIdsToChangesAndEmits, currentSeq));
         if (results.length < CHANGES_BATCH_SIZE) {
           return complete();
@@ -490,7 +491,63 @@ function updateViewInQueue(view) {
       }
     }
 
-    processNextBatch();
+    function processPurge() {
+      var sourcePurgeSeq = 0;
+      var currentPurgeSeq = 0;
+      var localPurgeDoc;
+      return view.db.get('_local/purge').then(function (doc) {
+        localPurgeDoc = doc;
+        currentPurgeSeq = doc.purge_seq;
+      }).catch(function (err) {
+        if (err.status === 404) {
+          return Promise.resolve();
+        }
+        throw "error retrieving purgeSeq";
+      }).then(function () {
+        return view.sourceDB.get('_local/purge');
+      }).then(function (sourcePurgeDoc) {
+        sourcePurgeSeq = sourcePurgeDoc.purge_seq;
+        return Promise.resolve(sourcePurgeDoc);
+      }).catch(function (err) {
+        if (err.status === 404) {
+          return Promise.resolve();
+        }
+        throw "error retrieving source purgeSeq";
+      }).then(function (sourcePurgeDoc) {
+        if (!sourcePurgeSeq) { // 0 or undefined
+          return Promise.resolve();
+        }
+        if ((sourcePurgeSeq - currentPurgeSeq) === 0) {
+          return Promise.resolve();
+        }
+        if ((sourcePurgeSeq - currentPurgeSeq) === 1) {
+          return purgeDoc(sourcePurgeDoc, localPurgeDoc);
+        }
+        throw "Too many purges";
+        // TODO: force re-indexing
+      });
+    }
+
+    function purgeDoc(doc, _purgeDoc) {
+      console.log('purgeDoc: %o', doc);
+      var docIdsToChangesAndEmits = {};
+      var ids = Object.keys(doc.purged);
+      ids.forEach(function (id) {
+        docIdsToChangesAndEmits[id] = {
+          changes: doc.purged[id],
+          indexableKeysToKeyValues: {} // always empty
+        };
+      });
+      queue.add(processChange(docIdsToChangesAndEmits, currentSeq));
+      var purgeDoc = _purgeDoc || {
+        _id: '_local/purge',
+        purge_seq: 0
+      };
+      purgeDoc.purge_seq = purgeDoc.purge_seq + 1;
+      return view.db.put(purgeDoc);
+    }
+
+    processPurge().then(processNextBatch);
   });
 }
 

@@ -3598,5 +3598,116 @@ function tests(dbName, dbType, viewType) {
       });
     }
 
+
+  });
+
+
+  describe('purge', function() {
+    it('first purge seq', function () {
+      return new Pouch(dbName, {adapter: 'websql'}).then(function (db) {
+        var ddoc = {
+          _id: '_design/myddoc',
+          views: {
+            myview: {
+              map: function (doc) {
+                emit(doc.firstName);
+              }.toString()
+            }
+          }
+        };
+        var doc0 = {
+          _id: 'foo0',
+          firstName: 'Foobar',
+          lastName: 'Bazman'
+        };
+        var doc1 = {
+          _id: 'foo1',
+          firstName: 'Twobar',
+          lastName: 'Twoman'
+        };
+        return db.bulkDocs({docs: [ddoc, doc0, doc1]}).then(function (info) {
+          ddoc._rev = info[0].rev;
+          return db.query('myddoc/myview');
+        }).then(function (res) {
+          res.rows.should.deep.equal([
+            {id: 'foo0', key: 'Foobar', value: null},
+            {id: 'foo1', key: 'Twobar', value: null}
+          ]);
+          return db.get('foo0');
+        }).then(function (doc) {
+            var rev = doc._rev;
+            return db.purge({'foo0': [rev]});
+        }).then(function () {
+          return db.query('myddoc/myview');
+        }).then(function (res) {
+          res.rows.should.deep.equal([
+            {id: 'foo1', key: 'Twobar', value: null}
+          ]);
+          return db.viewCleanup();
+        });
+      });
+    });
+
+    it('2nd purge', function() {
+      return new Pouch(dbName, {adapter: 'websql'}).then(function (db) {
+        var ddoc = {
+          _id: '_design/myddoc',
+          views: {
+            myview: {
+              map: function (doc) {
+                emit(doc.firstName);
+              }.toString()
+            }
+          }
+        };
+        var doc0 = {
+          _id: 'foo0',
+          firstName: 'Foobar',
+          lastName: 'Bazman'
+        };
+        var doc1 = {
+          _id: 'foo1',
+          firstName: 'Twobar',
+          lastName: 'Twoman'
+        };
+        var doc2 = {
+          _id: 'foo2',
+          firstName: 'Threebar',
+          lastName: 'Threedatter'
+        };
+        return db.bulkDocs({docs: [ddoc, doc0, doc1, doc2]}).then(function (info) {
+          ddoc._rev = info[0].rev;
+          return db.query('myddoc/myview');
+        }).then(function (res) {
+          res.rows.should.deep.equal([
+            {id: 'foo0', key: 'Foobar', value: null},
+            {id: 'foo2', key: 'Threebar', value: null},
+            {id: 'foo1', key: 'Twobar', value: null},
+          ]);
+          return db.get('foo0');
+        }).then(function (doc) {
+            var rev = doc._rev;
+            return db.purge({'foo0': [rev]});
+        }).then(function () {
+          return db.query('myddoc/myview');
+        }).then(function (res) {
+          res.rows.should.deep.equal([
+            {id: 'foo2', key: 'Threebar', value: null},
+            {id: 'foo1', key: 'Twobar', value: null},
+          ]);
+          return db.get('foo2');
+        }).then(function (doc) {
+          var rev = doc._rev;
+          return db.purge({'foo2': [rev]});
+        }).then(function () {
+          return db.query('myddoc/myview');
+        }).then(function (res) {
+          res.rows.should.deep.equal([
+            {id: 'foo1', key: 'Twobar', value: null}
+          ]);
+          return db.viewCleanup();
+        });
+      });
+    });
   });
 }

@@ -70,6 +70,30 @@ module.exports = function (opts) {
             });
           }
           return view;
+        }).then(function (view) {
+          return sourceDB.get('_local/purge');
+        }).catch(function (err) {
+          if (err.status === 404) {
+            return Promise.resolve({
+              purge_seq: 0,
+              purged: {}
+            });
+            throw err;
+          }
+        }).then(function (sourcePurgeDoc) {
+          return view.db.put({
+            _id: '_local/purge',
+            purge_seq: sourcePurgeDoc.purge_seq
+          }).catch(function (err) {
+            if (err.status === 409) {
+              return view.db.get('_local/purge').then(function (localPurge) {
+                localPurge.purge_seq = sourcePurgeDoc.purge_seq;
+                return view.db.put(localPurge);
+              });
+            }
+          });
+        }).then(function() {
+          return view;
         });
       });
     });

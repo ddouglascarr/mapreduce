@@ -478,7 +478,6 @@ function updateViewInQueue(view) {
           }
           currentSeq = change.seq;
         }
-        console.log('docIdsToChangesAndEmits: %o', docIdsToChangesAndEmits);
         queue.add(processChange(docIdsToChangesAndEmits, currentSeq));
         if (results.length < CHANGES_BATCH_SIZE) {
           return complete();
@@ -492,7 +491,7 @@ function updateViewInQueue(view) {
     }
 
     function processPurge() {
-      if (view.db.adapter === 'http') {
+      if (view.sourceDB.adapter === 'http') {
         return Promise.resolve();
       }
       var sourcePurgeSeq = 0;
@@ -526,8 +525,8 @@ function updateViewInQueue(view) {
         if ((sourcePurgeSeq - currentPurgeSeq) === 1) {
           return purgeDoc(sourcePurgeDoc, localPurgeDoc);
         }
-        throw "Too many purges";
-        // TODO: force re-indexing
+        // too many purges, re-index view
+        reject({reindex: true});
       });
     }
 
@@ -861,15 +860,25 @@ function queryPromised(db, fun, opts) {
         if (opts.stale === 'ok' || opts.stale === 'update_after') {
           if (opts.stale === 'update_after') {
             process.nextTick(function () {
-              updateView(view);
+              updateView(view).catch(reindex);
             });
           }
           return queryView(view, opts);
         } else { // stale not ok
           return updateView(view).then(function () {
             return queryView(view, opts);
-          });
+          }).catch(reindex);
         }
+
+        function reindex(err) {
+          if (err.reindex === true) {
+            return view.db.destroy().then(function () {
+              return queryPromised(db, fun, opts);
+            });
+          }
+          throw err;
+        }
+
       });
     });
   }
